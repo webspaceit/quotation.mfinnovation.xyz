@@ -2,16 +2,30 @@
 setlocal enabledelayedexpansion
 
 REM ============================================================
-REM  push-project.bat - One-click push to GitHub + live server
+REM  push-project.bat - push to GitHub + deploy to live server
 REM  Project: Quotation Management System
 REM  Server:  quotation.mfinnovation.xyz
 REM
-REM  IMPORTANT: the archive must preserve directory structure.
-REM  The old version used  Get-ChildItem -Recurse -File ^| Compress-Archive
-REM  which flattens every FileInfo to its base name. That put
-REM  admin/users/index.php into the site ROOT (overwriting index.php),
-REM  left the real admin/users/index.php untouched, and broke "/" with
-REM  a 500. Do not go back to that pattern.
+REM  Run it by double-clicking, or from cmd in the project dir.
+REM
+REM  WHY THIS SCRIPT LOOKS THE WAY IT DOES
+REM  --------------------------------------
+REM  The previous version built the archive like this:
+REM      Get-ChildItem -Recurse -File | Compress-Archive -DestinationPath x.zip
+REM  Compress-Archive stores each FileInfo under its BASE NAME ONLY, so the
+REM  zip contained no folders. Extracting it into the site root meant:
+REM    * nested files (admin/users/index.php, includes/, classes/, config/)
+REM      were never updated - the change silently did not deploy;
+REM    * root files were overwritten by whichever duplicate came last, so
+REM      index.php became a copy of admin/users/index.php and "/" returned 500.
+REM  It also triggered extraction with `curl` to a PHP endpoint, which fails
+REM  quietly on this machine (schannel: SEC_E_NO_CREDENTIALS) behind 2>nul.
+REM
+REM  Do not replace the staging + Compress-Archive "<stage>\*" pattern below,
+REM  and do not go back to curl for the extraction step.
+REM
+REM  NOTE: this script ADDS and OVERWRITES files. It does not delete files on
+REM  the server that you deleted locally - remove those by hand over SFTP.
 REM ============================================================
 
 set "PROJECT_DIR=E:\wamp64\www\qms"
@@ -25,6 +39,7 @@ set "ZIP_PATH=%TEMP%\%ZIP_NAME%"
 set "STAGE=%TEMP%\qms_stage"
 set "GIT_REMOTE=origin"
 set "GIT_BRANCH=master"
+set "FAIL=0"
 
 cd /d "%PROJECT_DIR%"
 if errorlevel 1 (
@@ -39,13 +54,12 @@ echo   Quotation Management System - Deploy
 echo ============================================
 echo.
 
-REM --- Step 1: Git add, commit, push -------------------------
-echo [1/6] Git...
+REM --- 1. Git ------------------------------------------------
+echo [1/7] Git add / commit / push...
 git add -A
 if errorlevel 1 (
     echo ERROR: git add failed
-    pause
-    exit /b 1
+    goto :end
 )
 
 git diff --cached --quiet
@@ -54,98 +68,118 @@ if errorlevel 1 (
 )
 
 git push %GIT_REMOTE% %GIT_BRANCH%
-if errorlevel 1 echo WARNING: git push failed, continuing with server deploy.
+if errorlevel 1 echo WARNING: git push failed - continuing with server deploy.
 
-REM --- Step 2: Stage a clean copy with structure intact ------
-echo [2/6] Staging deployment copy...
+REM --- 2. Stage a clean copy, structure intact ----------------
+echo [2/7] Staging deployment copy...
 if exist "%STAGE%" rd /s /q "%STAGE%"
-robocopy "%PROJECT_DIR%" "%STAGE%" /E /XD .git _quarantine node_modules deploy /XF .env .htaccess AUDIT_*.md PHASE0_NOTES.md *.zip push-project.bat database.sql README.md /NFL /NDL /NJH /NJS /NP >nul
+REM assets\uploads is skipped: uploaded media belongs to the server, and the
+REM directory's .htaccess is uploaded separately in step 6.
+REM NOTE: robocopy ignores a multi-segment RELATIVE /XD path - it must be absolute.
+robocopy "%PROJECT_DIR%" "%STAGE%" /E /XD .git _quarantine node_modules deploy "%PROJECT_DIR%\assets\uploads" /XF .env .htaccess AUDIT_*.md *_NOTES.md *.zip push-project.bat database.sql README.md /NFL /NDL /NJH /NJS /NP >nul
 if errorlevel 8 (
     echo ERROR: staging failed
-    pause
-    exit /b 1
+    goto :end
 )
 
-REM --- Step 3: Zip the staged copy (structure preserved) -----
-echo [3/6] Creating archive...
+REM --- 3. Zip the staged tree (directories preserved) ---------
+echo [3/7] Creating archive...
 if exist "%ZIP_PATH%" del "%ZIP_PATH%"
 powershell -NoProfile -Command "Compress-Archive -Path '%STAGE%\*' -DestinationPath '%ZIP_PATH%' -Force"
 if not exist "%ZIP_PATH%" (
     echo ERROR: failed to create archive
-    pause
-    exit /b 1
+    goto :end
 )
 rd /s /q "%STAGE%"
 
-REM --- Step 4: Upload and extract over SSH -------------------
-echo [4/6] Uploading...
-scp -i "%SSH_KEY%" -o StrictHostKeyChecking=no -o LogLevel=ERROR "%ZIP_PATH%" "%SSH_TARGET%:%SERVER_DIR%/%ZIP_NAME%"
+REM Sanity check BEFORE touching the server: the nested path must be inside.
+echo        checking archive layout...
+powershell -NoProfile -Command "Add-Type -AssemblyName System.IO.Compression.FileSystem; $z=[System.IO.Compression.ZipFile]::OpenRead('%ZIP_PATH%'); $n=$z.Entries.FullName; $z.Dispose(); if ($n -notcontains 'admin/users/index.php') { exit 1 } else { exit 0 }"
 if errorlevel 1 (
-    echo ERROR: upload failed
-    pause
-    exit /b 1
+    echo.
+    echo ERROR: archive has no directory structure - refusing to upload.
+    echo        admin/users/index.php is missing from the zip.
+    echo        Check the robocopy / Compress-Archive lines above.
+    goto :end
 )
 
-echo [5/6] Extracting on server...
+REM --- 4. Upload ---------------------------------------------
+echo [4/7] Uploading archive...
+scp -i "%SSH_KEY%" -o StrictHostKeyChecking=no -o LogLevel=ERROR "%ZIP_PATH%" "%SSH_TARGET%:%SERVER_DIR%/%ZIP_NAME%"
+if errorlevel 1 (
+    echo ERROR: upload failed - server untouched
+    goto :end
+)
+
+REM --- 5. Extract on the server ------------------------------
+echo [5/7] Extracting on server...
 ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no -o LogLevel=ERROR "%SSH_TARGET%" "cd %SERVER_DIR% && unzip -oq %ZIP_NAME% && rm -f %ZIP_NAME% extract_deploy.php && echo EXTRACT_OK"
 if errorlevel 1 (
     echo ERROR: extraction failed on server
-    pause
-    exit /b 1
+    goto :end
 )
 
-REM Deploy the hardened server .htaccess (host PHP handler + deny rules)
+REM --- 6. Server config --------------------------------------
+echo [6/7] Uploading server configuration...
 scp -i "%SSH_KEY%" -o StrictHostKeyChecking=no -o LogLevel=ERROR "%PROJECT_DIR%\deploy\server.htaccess" "%SSH_TARGET%:%SERVER_DIR%/.htaccess"
-if errorlevel 1 (
-    echo WARNING: .htaccess upload failed - security rules NOT applied
-)
+if errorlevel 1 echo WARNING: .htaccess upload failed - security rules NOT applied.
 
-REM Uploaded media must never execute either
 scp -i "%SSH_KEY%" -o StrictHostKeyChecking=no -o LogLevel=ERROR "%PROJECT_DIR%\deploy\uploads.htaccess" "%SSH_TARGET%:%SERVER_DIR%/assets/uploads/.htaccess"
-if errorlevel 1 (
-    echo WARNING: assets/uploads/.htaccess upload failed
-)
+if errorlevel 1 echo WARNING: assets/uploads/.htaccess upload failed.
 
-REM --- Step 6: Verify the files actually changed -------------
-echo [6/6] Verifying...
+REM --- 7. Verify the files actually changed ------------------
+echo [7/7] Verifying deployed files...
+echo.
+call :CheckFile "index.php"                  "index.php"
+call :CheckFile "login.php"                  "login.php"
+call :CheckFile "admin\users\index.php"      "admin/users/index.php"
+call :CheckFile "admin\settings\index.php"   "admin/settings/index.php"
+call :CheckFile "includes\functions.php"     "includes/functions.php"
+call :CheckFile "classes\User.php"           "classes/User.php"
+call :CheckFile "config\database.php"        "config/database.php"
+echo.
 
-for %%F in ("%PROJECT_DIR%\admin\users\index.php") do set "LOCAL_SIZE=%%~zF"
-for /f "usebackq tokens=*" %%S in (`ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no -o LogLevel=ERROR "%SSH_TARGET%" "stat -c %%s %SERVER_DIR%/admin/users/index.php"`) do set "REMOTE_SIZE=%%S"
-
-echo   local  admin/users/index.php = %LOCAL_SIZE% bytes
-echo   remote admin/users/index.php = %REMOTE_SIZE% bytes
-
-set "FAIL=0"
-if not "%LOCAL_SIZE%"=="%REMOTE_SIZE%" (
-    echo   *** MISMATCH - the deploy did not update this file ***
-    set "FAIL=1"
-)
-if "%REMOTE_SIZE%"=="" (
-    echo   *** Could not read the remote file ***
-    set "FAIL=1"
-)
-
-REM Root index.php must stay small (front controller), not a page copy
-for /f "usebackq tokens=*" %%S in (`ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no -o LogLevel=ERROR "%SSH_TARGET%" "stat -c %%s %SERVER_DIR%/index.php"`) do set "ROOT_SIZE=%%S"
-if not "%ROOT_SIZE%"=="188" (
-    echo   *** WARNING: root index.php is %ROOT_SIZE% bytes, expected 188 ***
-    set "FAIL=1"
-)
-
-powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'https://%SERVER_DIR%/login.php' -UseBasicParsing -TimeoutSec 20; Write-Host ('  https login.php -> ' + $r.StatusCode) } catch { Write-Host '  *** https check failed ***'; exit 1 }"
-if errorlevel 1 set "FAIL=1"
+REM Informational only - a TLS/proxy problem here is not a deploy failure.
+powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'https://%SERVER_DIR%/login.php' -UseBasicParsing -TimeoutSec 20 -ErrorAction Stop; Write-Host ('  http check: login.php -> ' + $r.StatusCode) } catch { Write-Host '  http check: could not reach site (check it manually)' }"
 
 echo.
 if "%FAIL%"=="1" (
     echo ============================================
-    echo   DEPLOY COMPLETED WITH PROBLEMS - see above
+    echo   DEPLOYED WITH PROBLEMS - files above marked FAIL
     echo ============================================
 ) else (
     echo ============================================
-    echo   Deployment verified
+    echo   Deployment verified - server matches local
     echo ============================================
 )
 
-if exist "%ZIP_PATH%" del "%ZIP_PATH%"
+:end
+if exist "%ZIP_PATH%" del "%ZIP_PATH%" >nul 2>&1
+if exist "%STAGE%" rd /s /q "%STAGE%" >nul 2>&1
 echo.
 pause
+exit /b 0
+
+REM ============================================================
+REM  :CheckFile  <local relative path>  <remote relative path>
+REM  Compares byte size of the local file and the deployed one.
+REM ============================================================
+:CheckFile
+set "LSZ="
+set "RSZ="
+for %%F in ("%PROJECT_DIR%\%~1") do set "LSZ=%%~zF"
+for /f "usebackq tokens=*" %%S in (`ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no -o LogLevel=ERROR "%SSH_TARGET%" "stat -c %%s %SERVER_DIR%/%~2"`) do set "RSZ=%%S"
+if "%LSZ%"=="" set "LSZ=0"
+if "%RSZ%"=="" set "RSZ=0"
+if "%LSZ%"=="0" (
+    echo   FAIL  %~1 - local file missing or empty, nothing to compare
+    set "FAIL=1"
+    exit /b
+)
+if "%LSZ%"=="%RSZ%" (
+    echo   OK    %~2  [%LSZ% bytes]
+) else (
+    echo   FAIL  %~2  local=%LSZ% remote=%RSZ%
+    set "FAIL=1"
+)
+exit /b
