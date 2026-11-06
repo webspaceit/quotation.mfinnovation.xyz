@@ -36,14 +36,23 @@ recoverable, and `_quarantine/` is blocked over HTTP.
 ## 3. `.htaccess` hardening
 
 ```
-.env, .git, dotfiles          -> 403   (.well-known excluded for ACME)
-*.sql *.md *.log *.bak *.zip  -> 403
+any path segment starting with "."   -> 403   (.env, .git/, .htaccess; .well-known excluded)
+*.sql *.md *.log *.bak *.zip         -> 403
 config/ classes/ includes/ vendor/ _quarantine/ -> 403
 assets/uploads/*.php|phtml|phar|cgi|pl -> 403
 ```
 
 Plus `assets/uploads/.htaccess` turning the PHP engine off inside the upload
 directory, as defence in depth behind `uploadFile()`'s extension check.
+
+**Caught during verification:** the first version used `<FilesMatch "^\.…>` only,
+and `/.git/config` returned **200** — `FilesMatch` matches the file *name*
+(`config`), not the dot-directory it sits in. That would have exposed the whole
+repository, including this baseline commit. Replaced with a per-directory
+`RewriteRule (^|/)\.` that blocks any dot segment, with `.well-known` excluded
+so ACME certificates still work. Also removed two dangling `RewriteCond` lines
+that had no `RewriteRule` attached and were silently attaching themselves to the
+next rule.
 
 ## 4. Code changes
 
@@ -58,13 +67,26 @@ directory, as defence in depth behind `uploadFile()`'s extension check.
 ## 5. Verification
 
 ```
-.env                              -> 403
-database.sql                      -> 403
-README.md / AUDIT*.md             -> 403
-config/database.php               -> 403
-assets/uploads/sectest.php        -> 403
-assets/css/style.css              -> 200
-fix_password.php                  -> 404
+/login.php                       -> 200
+/index.php                       -> 302 to login.php
+/assets/css/style.css            -> 200
+/.env                            -> 403
+/.git/config                     -> 403
+/.git/HEAD                       -> 403
+/.gitignore                      -> 403
+/.htaccess                       -> 403
+/database.sql                    -> 403
+/README.md                       -> 403
+/AUDIT_2026-11-06.md             -> 403
+/PHASE0_NOTES.md                 -> 403
+/config/database.php             -> 403
+/includes/functions.php          -> 403
+/classes/User.php                -> 403
+/_quarantine/…/fix_password.php  -> 403
+/assets/uploads/.htaccess        -> 403
+/fix_password.php                -> 404
+/install.php                     -> 404
+/sample.php                      -> 404
 
 login (admin)                     -> 302, dashboard 200
 login (test staff)                -> 302, dashboard 200
@@ -76,8 +98,13 @@ POST ajax/send_email.php, bad CSRF, signed in-> 403 JSON
 GET  ajax/send_email.php, signed in          -> 405 JSON
 POST ajax/send_email.php, bad recipient      -> 400 JSON
 
+all 9 admin pages (dashboard, quotations list/create/view/edit/preview,
+clients, users, settings)                    -> 200, no PHP warnings
+
 php -l on all 24 application files           -> 0 errors
 ```
+
+20/20 exposure checks pass.
 
 The temporary staff account used for the privilege test was deleted;
 `users` is back to a single admin row.

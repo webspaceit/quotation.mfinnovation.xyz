@@ -3,21 +3,21 @@
 # Rationale and severity ratings: see AUDIT_2026-11-06.md
 
 RewriteEngine On
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-
 Options -Indexes
 
 php_flag display_errors off
 php_value error_reporting 0
 
 # ---------------------------------------------------------------------------
-# 1. Block dotfiles: .env, .git, editor swap files.
+# 1. Block any path segment that starts with a dot: .env, .git/, .htaccess,
+#    editor swap files. FilesMatch alone is not enough here because it matches
+#    the file NAME only — ".git/config" has the harmless name "config".
 #    ".well-known" is excluded so ACME / Let's Encrypt validation still works.
 # ---------------------------------------------------------------------------
-<FilesMatch "^\.(?!well-known)">
-    Require all denied
-</FilesMatch>
+<IfModule mod_rewrite.c>
+    RewriteCond %{REQUEST_FILENAME} !\.well-known
+    RewriteRule (^|/)\. - [F,L]
+</IfModule>
 
 # ---------------------------------------------------------------------------
 # 2. Block schema dumps, documentation and backups.
@@ -29,7 +29,7 @@ php_value error_reporting 0
 
 # ---------------------------------------------------------------------------
 # 3. Never execute code from the uploads directory.
-#    uploadFile() only accepts image extensions, this is defence in depth.
+#    uploadFile() only accepts image extensions; this is defence in depth.
 # ---------------------------------------------------------------------------
 <IfModule mod_rewrite.c>
     RewriteRule ^assets/uploads/.*\.(php[0-9]?|phtml|phar|cgi|pl|py|sh)$ - [F,NC,L]
