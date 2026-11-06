@@ -91,10 +91,10 @@ if errorlevel 8 (
 
 REM --- 3. Zip the staged tree (directories preserved) ---------
 REM Do NOT use Compress-Archive here. Windows PowerShell 5.1 - which is what
-REM `powershell` resolves to from cmd - writes zip entry names with BACKSLASHES
-REM ("admin\users\index.php"). Linux unzip treats that as one filename, not a
-REM path, so everything lands flat in the site root again. make-zip.ps1 builds
-REM the archive itself and normalises separators to "/".
+REM powershell resolves to from cmd - writes zip entry names with BACKSLASHES.
+REM A path like admin\users\index.php is then stored as one long FILENAME, not
+REM as a directory path, so Linux unzip puts every file in the site root again.
+REM make-zip.ps1 writes the entries itself and normalises separators to a slash.
 echo [3/7] Creating archive...
 if not exist "%PROJECT_DIR%\deploy\make-zip.ps1" (
     echo ERROR: deploy\make-zip.ps1 is missing - cannot build the archive safely
@@ -150,13 +150,12 @@ if errorlevel 1 echo WARNING: assets/uploads/.htaccess upload failed.
 REM --- 7. Verify the files actually changed ------------------
 echo [7/7] Verifying deployed files...
 echo.
-call :CheckFile "index.php"                  "index.php"
-call :CheckFile "login.php"                  "login.php"
-call :CheckFile "admin\users\index.php"      "admin/users/index.php"
-call :CheckFile "admin\settings\index.php"   "admin/settings/index.php"
-call :CheckFile "includes\functions.php"     "includes/functions.php"
-call :CheckFile "classes\User.php"           "classes/User.php"
-call :CheckFile "config\database.php"        "config/database.php"
+REM Verification runs from PowerShell on purpose. cmd re-parses a for /f
+REM command and splits the -o Key=Value ssh option, so ssh fails with
+REM "no argument after keyword" and every file shows remote=0.
+REM verify-deploy.ps1 passes the arguments directly, with no re-parsing.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PROJECT_DIR%\deploy\verify-deploy.ps1" -ProjectDir "%PROJECT_DIR%" -SshKey "%SSH_KEY%" -SshTarget "%SSH_TARGET%" -ServerDir "%SERVER_DIR%"
+if errorlevel 1 set "FAIL=1"
 echo.
 
 REM Informational only - a TLS/proxy problem here is not a deploy failure.
@@ -179,27 +178,3 @@ if exist "%STAGE%" rd /s /q "%STAGE%" >nul 2>&1
 echo.
 pause
 exit /b 0
-
-REM ============================================================
-REM  :CheckFile  <local relative path>  <remote relative path>
-REM  Compares byte size of the local file and the deployed one.
-REM ============================================================
-:CheckFile
-set "LSZ="
-set "RSZ="
-for %%F in ("%PROJECT_DIR%\%~1") do set "LSZ=%%~zF"
-for /f "usebackq tokens=*" %%S in (`ssh -i "%SSH_KEY%" -o StrictHostKeyChecking=no -o LogLevel=ERROR "%SSH_TARGET%" "stat -c %%s %SERVER_DIR%/%~2"`) do set "RSZ=%%S"
-if "%LSZ%"=="" set "LSZ=0"
-if "%RSZ%"=="" set "RSZ=0"
-if "%LSZ%"=="0" (
-    echo   FAIL  %~1 - local file missing or empty, nothing to compare
-    set "FAIL=1"
-    exit /b
-)
-if "%LSZ%"=="%RSZ%" (
-    echo   OK    %~2  [%LSZ% bytes]
-) else (
-    echo   FAIL  %~2  local=%LSZ% remote=%RSZ%
-    set "FAIL=1"
-)
-exit /b
