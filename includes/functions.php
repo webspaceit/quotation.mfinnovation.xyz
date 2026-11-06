@@ -19,7 +19,8 @@ function csrf_valid() {
 
 function verify_csrf() {
     if($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_valid()) {
-        http_response_code(419);
+        // 403, not 419: Apache rewrites non-standard status codes to 500.
+        http_response_code(403);
         die('CSRF token validation failed');
     }
 }

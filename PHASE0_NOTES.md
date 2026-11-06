@@ -129,3 +129,37 @@ php -r "$p=new PDO('mysql:host=localhost;dbname=qms_db','root','');$p->prepare('
 - The email attachment is still an `.html` dump labelled "PDF" — Phase 2.
 - Print pagination (repeating totals) — Phase 2.
 - DB transactions, item-deletion ordering, quotation numbering — Phase 1.
+
+---
+
+## Addendum — 7 Nov 2026: user access management
+
+`admin/users/index.php` could previously only **create** users. There was no
+way to change a role, reset a password, rename, or remove access — `User` had
+no `update`/`delete`/`getById` methods at all.
+
+Added:
+
+- **Edit** per row: name, email, role, and an optional new password
+  (blank keeps the existing hash).
+- **Delete** per row, behind a confirm dialog.
+- Row marked **You** for the signed-in account; its delete button is hidden.
+- `User::getById()`, `emailExists()`, `update()`, `delete()`, `countAdmins()`.
+
+Guard rails (server-side, not just UI):
+
+| Rule | Behaviour |
+|---|---|
+| Delete own account | Rejected — "cannot delete the account you are signed in with" |
+| Demote/delete last admin | Rejected — "last administrator account" |
+| Change own role | Silently forced back to the current role; name/email/password still save |
+| Password < 8 chars on create/reset | Rejected |
+| Duplicate email | Rejected (excludes the user being edited) |
+| Non-admin opening the page | 302 to dashboard |
+
+Verified end-to-end: create → update role+password → login with the new
+password → delete → self-delete blocked → self-demotion blocked → blank
+password leaves the hash untouched. 9/9 checks pass.
+
+Also fixed: `verify_csrf()` used status **419**, which Apache rewrites to
+**500**. An expired form token looked like a server crash. Now 403.
