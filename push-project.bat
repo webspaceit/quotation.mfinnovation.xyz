@@ -100,6 +100,12 @@ if errorlevel 1 (
     echo WARNING: .htaccess upload failed - security rules NOT applied
 )
 
+REM Uploaded media must never execute either
+scp -i "%SSH_KEY%" -o StrictHostKeyChecking=no -o LogLevel=ERROR "%PROJECT_DIR%\deploy\uploads.htaccess" "%SSH_TARGET%:%SERVER_DIR%/assets/uploads/.htaccess"
+if errorlevel 1 (
+    echo WARNING: assets/uploads/.htaccess upload failed
+)
+
 REM --- Step 6: Verify the files actually changed -------------
 echo [6/6] Verifying...
 

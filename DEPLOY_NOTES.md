@@ -105,3 +105,30 @@ file was still reachable. It **executed**, resetting the live admin password to
 `admin/users/index.php`, click Edit on your own row, set a new password.
 
 `.env` is blocked by the host (403), so database credentials were not exposed.
+
+---
+
+## Follow-up — favicon upload 500 (7 Nov 2026)
+
+The live database was a schema behind the code. `company_settings` had 20
+columns; the deployed `Company::update()` writes 32. Saving settings threw
+`SQLSTATE[42S22]: Unknown column 'favicon'`, uncaught, which Apache rendered as
+a bare 500 — nothing to do with the upload itself.
+
+Migration applied to production (additive only, backups first):
+
+| Table | Added | Backup |
+|---|---|---|
+| `company_settings` | `favicon`, `block_typography`, `default_authorized_signature`, `table_font_family`, `table_font_size`, `table_font_style`, `table_text_color`, `table_line_height`, `table_font_weight`, `table_letter_spacing`, `table_text_transform`, `table_text_decoration` | `company_settings_bak_20261107` |
+| `quotations` | `signature_image`, `authorized_signature` | `quotations_bak_20261107` |
+
+All six tables now match local column for column. `Company::update()` runs
+clean on the server.
+
+Second bug fixed behind it: `uploadFile()` allowed only
+`jpg/jpeg/png/gif/webp`, so a real `.ico` favicon would have been rejected with
+"Favicon upload failed" even after the schema fix. `ico` is now allowed.
+Verified locally end-to-end: upload → DB `favicon` = `<id>.ico` → file on disk.
+
+`deploy/uploads.htaccess` is now uploaded by the deploy script, so the uploads
+directory can never execute code on the server.

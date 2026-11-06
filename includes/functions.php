@@ -45,7 +45,7 @@ function formatCurrency($amount, $currency = '৳') {
 
 function uploadFile($file, $dir = 'assets/uploads/') {
     if($file['error'] !== UPLOAD_ERR_OK) return false;
-    $allowed = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    $allowed = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'ico'];
     $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
     if(!in_array($ext, $allowed)) return false;
     if($file['size'] > 2 * 1024 * 1024) return false;
