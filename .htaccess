@@ -1,6 +1,44 @@
+# QMS — Apache configuration
+# Hardened 2026-11-06 during Phase 0 security pass.
+# Rationale and severity ratings: see AUDIT_2026-11-06.md
+
 RewriteEngine On
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
+
 Options -Indexes
+
 php_flag display_errors off
 php_value error_reporting 0
+
+# ---------------------------------------------------------------------------
+# 1. Block dotfiles: .env, .git, editor swap files.
+#    ".well-known" is excluded so ACME / Let's Encrypt validation still works.
+# ---------------------------------------------------------------------------
+<FilesMatch "^\.(?!well-known)">
+    Require all denied
+</FilesMatch>
+
+# ---------------------------------------------------------------------------
+# 2. Block schema dumps, documentation and backups.
+#    database.sql is imported via phpMyAdmin from disk, not over HTTP.
+# ---------------------------------------------------------------------------
+<FilesMatch "\.(sql|md|log|bak|old|orig|ini|sh|bat|zip|tar|gz|7z)$">
+    Require all denied
+</FilesMatch>
+
+# ---------------------------------------------------------------------------
+# 3. Never execute code from the uploads directory.
+#    uploadFile() only accepts image extensions, this is defence in depth.
+# ---------------------------------------------------------------------------
+<IfModule mod_rewrite.c>
+    RewriteRule ^assets/uploads/.*\.(php[0-9]?|phtml|phar|cgi|pl|py|sh)$ - [F,NC,L]
+</IfModule>
+
+# ---------------------------------------------------------------------------
+# 4. No direct HTTP access to application internals.
+#    These are only ever included server-side.
+# ---------------------------------------------------------------------------
+<IfModule mod_rewrite.c>
+    RewriteRule ^(config|classes|includes|vendor|_quarantine)(/|$) - [F,L]
+</IfModule>

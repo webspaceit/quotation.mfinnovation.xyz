@@ -16,7 +16,10 @@ class Database {
                 ]
             );
         } catch(PDOException $e) {
-            die("Connection failed: " . $e->getMessage());
+            // Never echo driver messages: they expose host, user and schema details.
+            error_log('[QMS] Database connection failed: ' . $e->getMessage());
+            http_response_code(500);
+            die('Database connection failed. Please contact the system administrator.');
         }
     }
     

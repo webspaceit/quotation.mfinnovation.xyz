@@ -2,6 +2,13 @@
 require_once '../../includes/auth.php';
 require_once '../../config/database.php';
 require_once '../../includes/functions.php';
+
+// Settings hold SMTP credentials and company identity — admin only.
+if(!$currentUser || $currentUser['role'] !== 'admin') {
+    header('Location: ' . BASE_URL . 'admin/dashboard.php');
+    exit;
+}
+
 $company = new Company();
 $comp = $company->getSettings();
 

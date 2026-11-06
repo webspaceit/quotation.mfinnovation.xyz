@@ -9,3 +9,6 @@ assets/uploads/*
 # OS noise
 Thumbs.db
 desktop.ini
+
+# Quarantined legacy scripts (originals live in commit 91ce69d)
+_quarantine/

@@ -10,11 +10,17 @@ function csrf_field() {
     echo '<input type="hidden" name="csrf_token" value="' . csrf_token() . '">';
 }
 
+function csrf_valid() {
+    if(empty($_POST['csrf_token']) || empty($_SESSION['csrf_token'])) {
+        return false;
+    }
+    return hash_equals($_SESSION['csrf_token'], $_POST['csrf_token']);
+}
+
 function verify_csrf() {
-    if($_SERVER['REQUEST_METHOD'] === 'POST') {
-        if(!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
-            die('CSRF token validation failed');
-        }
+    if($_SERVER['REQUEST_METHOD'] === 'POST' && !csrf_valid()) {
+        http_response_code(419);
+        die('CSRF token validation failed');
     }
 }
 

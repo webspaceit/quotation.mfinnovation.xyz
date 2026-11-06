@@ -65,6 +65,17 @@ spl_autoload_register(function($class){
         }
     }
 });
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    $sessionHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https');
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path'     => '/',
+        'httponly' => true,          // not readable from JavaScript
+        'samesite' => 'Lax',         // blocks cross-site POSTs carrying the cookie
+        'secure'   => $sessionHttps, // HTTPS only when the request is HTTPS
+    ]);
+    session_start();
+}
 date_default_timezone_set(TIMEZONE);
 ?>
