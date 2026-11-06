@@ -1,0 +1,33 @@
+@media print {
+    body {
+        background: white !important;
+    }
+    nav, footer, .no-print {
+        display: none !important;
+    }
+    .print-page {
+        box-shadow: none !important;
+        margin: 0 !important;
+        padding: 20px !important;
+    }
+}
+.quotation-table th {
+    background-color: #f9fafb;
+}
+.green-line {
+    height: 3px;
+    background: linear-gradient(to right, #16a34a, #22c55e);
+}
+.toast {
+    padding: 12px 24px;
+    border-radius: 8px;
+    color: white;
+    font-weight: 500;
+    animation: slideIn 0.3s ease;
+}
+.toast-success { background-color: #16a34a; }
+.toast-error { background-color: #dc2626; }
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}

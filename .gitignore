@@ -1,0 +1,11 @@
+# Local environment / secrets
+.env
+*.log
+
+# Uploaded media (keep the folder, not the contents)
+assets/uploads/*
+!assets/uploads/.gitkeep
+
+# OS noise
+Thumbs.db
+desktop.ini
