@@ -10,19 +10,26 @@ REM  Run it by double-clicking, or from cmd in the project dir.
 REM
 REM  WHY THIS SCRIPT LOOKS THE WAY IT DOES
 REM  --------------------------------------
-REM  The previous version built the archive like this:
-REM      Get-ChildItem -Recurse -File | Compress-Archive -DestinationPath x.zip
-REM  Compress-Archive stores each FileInfo under its BASE NAME ONLY, so the
-REM  zip contained no folders. Extracting it into the site root meant:
-REM    * nested files (admin/users/index.php, includes/, classes/, config/)
-REM      were never updated - the change silently did not deploy;
-REM    * root files were overwritten by whichever duplicate came last, so
-REM      index.php became a copy of admin/users/index.php and "/" returned 500.
-REM  It also triggered extraction with `curl` to a PHP endpoint, which fails
-REM  quietly on this machine (schannel: SEC_E_NO_CREDENTIALS) behind 2>nul.
+REM  THREE separate things used to flatten the deploy. All three are handled:
 REM
-REM  Do not replace the staging + Compress-Archive "<stage>\*" pattern below,
-REM  and do not go back to curl for the extraction step.
+REM  1) `Get-ChildItem -Recurse -File | Compress-Archive` stored every file
+REM     under its BASE NAME ONLY, so the zip had no folders at all.
+REM     -> fixed by staging with robocopy and zipping the staged tree.
+REM
+REM  2) Windows PowerShell 5.1 (what `powershell` resolves to from cmd) writes
+REM     zip entries with BACKSLASHES: "admin\users\index.php". Linux unzip sees
+REM     one filename, not a path, so nested files still land in the site root.
+REM     Compress-Archive AND .NET's ZipFile::CreateFromDirectory both do this
+REM     on .NET Framework. -> fixed by deploy\make-zip.ps1, which writes each
+REM     entry itself with "/" separators and refuses to produce a bad archive.
+REM
+REM  3) Extraction was triggered with `curl` to a PHP endpoint, which fails
+REM     quietly on this machine (schannel: SEC_E_NO_CREDENTIALS) behind 2>nul.
+REM     -> fixed by extracting with `unzip` over SSH and checking the exit code.
+REM
+REM  Net effect of the old bug: admin/users/index.php was never updated, while
+REM  its contents were dumped into the site root as index.php, so "/" returned
+REM  500. Do not reintroduce any of the three patterns above.
 REM
 REM  NOTE: this script ADDS and OVERWRITES files. It does not delete files on
 REM  the server that you deleted locally - remove those by hand over SFTP.
@@ -83,9 +90,22 @@ if errorlevel 8 (
 )
 
 REM --- 3. Zip the staged tree (directories preserved) ---------
+REM Do NOT use Compress-Archive here. Windows PowerShell 5.1 - which is what
+REM `powershell` resolves to from cmd - writes zip entry names with BACKSLASHES
+REM ("admin\users\index.php"). Linux unzip treats that as one filename, not a
+REM path, so everything lands flat in the site root again. make-zip.ps1 builds
+REM the archive itself and normalises separators to "/".
 echo [3/7] Creating archive...
+if not exist "%PROJECT_DIR%\deploy\make-zip.ps1" (
+    echo ERROR: deploy\make-zip.ps1 is missing - cannot build the archive safely
+    goto :end
+)
 if exist "%ZIP_PATH%" del "%ZIP_PATH%"
-powershell -NoProfile -Command "Compress-Archive -Path '%STAGE%\*' -DestinationPath '%ZIP_PATH%' -Force"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PROJECT_DIR%\deploy\make-zip.ps1" -Stage "%STAGE%" -Zip "%ZIP_PATH%"
+if errorlevel 1 (
+    echo ERROR: archive creation failed - server untouched
+    goto :end
+)
 if not exist "%ZIP_PATH%" (
     echo ERROR: failed to create archive
     goto :end
@@ -99,7 +119,7 @@ if errorlevel 1 (
     echo.
     echo ERROR: archive has no directory structure - refusing to upload.
     echo        admin/users/index.php is missing from the zip.
-    echo        Check the robocopy / Compress-Archive lines above.
+    echo        Check deploy\make-zip.ps1 - it should never produce this.
     goto :end
 )
 
