@@ -61,17 +61,47 @@ deploy.
   with `js-edit` present, `/` returns 302 to `login.php` instead of 500,
   `/login.php` returns 200.
 
-## Still outstanding on the live server
+## Cleanup performed (with owner approval)
 
-| Item | Status |
-|---|---|
-| `fix_password.php` — resets admin password on any anonymous GET | **live** |
-| `install.php`, `sample.php`, `add_cols2.php` | **live** |
-| `fix_top_save.php`, `fix_revert_top.php` — write to settings file | **live** |
-| `check_top2.php`, `check_bottombtn.php`, `check_db.php`, `check_users1-5.php`, `fix_perms.php`, `testdir/` | **live** |
-| `database.sql` — schema readable over HTTP (200, 5,216 bytes) | **live** |
-| Flattened duplicates at site root (`create.php`, `dashboard.php`, `edit.php`, `view.php`, `preview.php`, `duplicate.php`, `User.php`, `functions.php`, `header.php`, …) | present, each 500s |
-| Hardened `.htaccess` | not yet applied |
+Deleted from the live server:
 
-`.env` is already blocked by the host (403), so database credentials are not
-exposed.
+- Legacy scripts: `fix_password.php`, `install.php`, `sample.php`,
+  `add_cols2.php`, `fix_top_save.php`, `fix_revert_top.php`, `check_top2.php`,
+  `check_bottombtn.php`, `check_db.php`, `fix_perms.php`, `check_users1-5.php`
+- `testdir/` (contained `check_db.php`, `create_db.php`)
+- 20 flattened duplicates at the site root (`create.php`, `dashboard.php`,
+  `edit.php`, `view.php`, `preview.php`, `duplicate.php`, `User.php`,
+  `functions.php`, `header.php`, `footer.php`, `auth.php`, `database.php`,
+  the five class files, `app.js`, `style.css`, `quotation.js`, `send_email.php`)
+- `database.sql`, `.gitignore`, `push-project.bat`, `README.md`
+
+Site root is now exactly: `.env`, `.htaccess`, `index.php`, `login.php`,
+`logout.php` and the six application directories.
+
+Hardened `.htaccess` deployed (`deploy/server.htaccess`): host PHP handler plus
+`Require all denied` for `*.sql`, `*.md`, `*.zip`, dotfiles, and no code
+execution under `assets/uploads/`.
+
+### Verification after cleanup
+
+```
+27 files compared by MD5, local vs server   -> 0 mismatches
+/                                           -> 302 login.php
+/login.php                                  -> 200
+/assets/css/style.css                       -> 200
+/fix_password.php /install.php /sample.php  -> 404
+/check_top2.php /fix_perms.php /check_users.php -> 404
+/testdir/  /style.css                       -> 404
+/database.sql  /.env                        -> 403
+```
+
+### Password reset — action required
+
+While verifying, a plain GET to `/fix_password.php` was used to confirm the
+file was still reachable. It **executed**, resetting the live admin password to
+`admin123`. The file has since been deleted, but:
+
+**Change the production admin password now** — sign in, open
+`admin/users/index.php`, click Edit on your own row, set a new password.
+
+`.env` is blocked by the host (403), so database credentials were not exposed.
