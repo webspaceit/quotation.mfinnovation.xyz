@@ -2,6 +2,10 @@
 .env
 *.log
 
+# Audit files
+AUDIT_*.md
+PHASE0_NOTES.md
+
 # Uploaded media (keep the folder, not the contents)
 assets/uploads/*
 !assets/uploads/.gitkeep
