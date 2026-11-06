@@ -1,0 +1,30 @@
+# Deployed to the live server as .htaccess by push-project.bat
+# Contains the host's PHP handler block AND the security rules from the
+# local hardened .htaccess. Keep both: the handler lines are required by
+# the host, the deny rules are not optional.
+
+#+PHPVersion
+#=php84
+AddHandler x-httpd-php84 .php
+#-PHPVersion
+
+DirectoryIndex index.php
+
+# No directory listings
+Options -Indexes
+
+# Never serve schema dumps, docs, backups or local env files
+<FilesMatch "\.(sql|md|log|bak|zip|tar|gz|sh|ini|env|gitignore)$">
+    Require all denied
+</FilesMatch>
+
+# Block dotfiles (.git, .env, editor files)
+<FilesMatch "^\.(?!well-known)">
+    Require all denied
+</FilesMatch>
+
+# Uploaded media must never execute
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteRule ^assets/uploads/.*\.(php[0-9]?|phtml|phar|cgi|pl)$ - [F,NC,L]
+</IfModule>
